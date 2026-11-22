@@ -1,6 +1,6 @@
 // storage.js — ЄДИНЕ місце, яке знає, де лежать дані.
-// Зараз це IndexedDB у браузері. Пізніше цей модуль можна замінити на Supabase
-// з тими самими асинхронними функціями — інтерфейс переписувати не доведеться.
+// Це IndexedDB у браузері (працює без інтернету). Файл sync.js дзеркалить зміни
+// у Supabase і підтягує зміни з інших пристроїв.
 //
 // Кожен запис має: id (UUID), createdAt, updatedAt (ISO-рядки).
 // Видалення «м'яке» (deletedAt) — так синхронізація зможе передати видалення на інші пристрої.
@@ -20,6 +20,7 @@ export const DEFAULT_SETTINGS = {
   quietHours: { enabled: true, from: '23:00', to: '08:00' },
   defaultReminder: 10, // хвилин до; 0 — у момент; null — без нагадування
   morningSummary: { enabled: false, time: '08:00' },
+  timezone: null, // сервер рахує нагадування за цим поясом; ставиться автоматично
 };
 
 let dbPromise = null;
@@ -107,6 +108,116 @@ function clone(v) {
   return v === undefined ? undefined : JSON.parse(JSON.stringify(v));
 }
 
+/* --------------- Відстеження змін для синхронізації ---------------- */
+// Список id записів, які ще не відправлені на сервер. Лежить у localStorage,
+// щоб пережити перезавантаження й роботу офлайн.
+const DIRTY_KEY = 'rytm.dirty';
+const dirtyListeners = new Set();
+export const isSyncedMeta = (id) => id === 'settings' || String(id).startsWith('order:');
+
+function readDirty() {
+  try {
+    return JSON.parse(localStorage.getItem(DIRTY_KEY)) || {};
+  } catch {
+    return {};
+  }
+}
+function writeDirty(d) {
+  try {
+    localStorage.setItem(DIRTY_KEY, JSON.stringify(d));
+  } catch {
+    /* приватний режим */
+  }
+}
+function markDirty(storeName, ids) {
+  if (storeName === 'meta') ids = ids.filter(isSyncedMeta);
+  if (!ids.length) return;
+  const d = readDirty();
+  const set = new Set(d[storeName] || []);
+  ids.forEach((i) => set.add(i));
+  d[storeName] = [...set];
+  writeDirty(d);
+  dirtyListeners.forEach((fn) => fn());
+}
+export function onDirty(fn) {
+  dirtyListeners.add(fn);
+  return () => dirtyListeners.delete(fn);
+}
+/** Забирає (і очищає) список змінених записів: {tasks:[rec], habits:[rec], ...} */
+export async function takeDirty() {
+  const d = readDirty();
+  writeDirty({});
+  const out = {};
+  for (const s of STORES) {
+    const recs = [];
+    for (const id of d[s] || []) {
+      const r = await get(s, id);
+      if (r) recs.push(r);
+    }
+    out[s] = recs;
+  }
+  return out;
+}
+/** Повертає записи назад у чергу (якщо відправка не вдалася) */
+export function requeueDirty(batch) {
+  for (const s of STORES) markDirty(s, (batch[s] || []).map((r) => r.id));
+}
+export function markAllDirty() {
+  return Promise.all(STORES.map(async (s) => markDirty(s, (await all(s)).map((r) => r.id))));
+}
+
+/** Запис з позначкою «потрібно синхронізувати» */
+async function putTracked(storeName, rec) {
+  await put(storeName, rec);
+  markDirty(storeName, [rec.id]);
+  return rec;
+}
+
+/* --------------- Застосування даних із сервера (без позначки) ------- */
+
+export const rawAll = (s) => all(s);
+
+/**
+ * Зливає записи з сервера: перемагає новіший updatedAt. Для completions унікальність
+ * (kind, refId, date) важливіша за id — якщо id різні, лишається id із сервера.
+ * Повертає кількість змінених записів.
+ */
+export async function applyRemote(storeName, incoming) {
+  if (!incoming.length) return 0;
+  const current = await all(storeName);
+  const byId = new Map(current.map((r) => [r.id, r]));
+  const byRef = storeName === 'completions' ? new Map(current.map((c) => [`${c.kind}|${c.refId}|${c.date}`, c])) : null;
+  const toWrite = [];
+  const toDelete = [];
+  for (const r of incoming) {
+    let cur = byId.get(r.id);
+    if (byRef) {
+      const same = byRef.get(`${r.kind}|${r.refId}|${r.date}`);
+      if (same && (!cur || same.id !== cur.id)) cur = same;
+    }
+    if (cur && String(r.updatedAt) <= String(cur.updatedAt)) continue;
+    if (cur && cur.id !== r.id) toDelete.push(cur.id);
+    toWrite.push(r);
+  }
+  if (!toWrite.length) return 0;
+  const db = await openDB();
+  if (!db) {
+    toDelete.forEach((id) => memoryFallback[storeName].delete(id));
+  } else if (toDelete.length) {
+    const tx = db.transaction(storeName, 'readwrite');
+    toDelete.forEach((id) => tx.objectStore(storeName).delete(id));
+    await new Promise((res, rej) => {
+      tx.oncomplete = res;
+      tx.onerror = () => rej(tx.error);
+    });
+  }
+  await putMany(storeName, toWrite);
+  return toWrite.length;
+}
+export function notifyChanged(what = 'all') {
+  emit(what);
+}
+
 function stamp(rec) {
   const t = nowISO();
   return { ...rec, id: rec.id || uuid(), createdAt: rec.createdAt || t, updatedAt: t };
@@ -162,14 +273,14 @@ export async function saveTask(task) {
     exceptions: {},
     ...task,
   });
-  await put('tasks', rec);
+  await putTracked('tasks', rec);
   emit('tasks');
   return rec;
 }
 export async function deleteTask(id) {
   const t = await get('tasks', id);
   if (!t) return;
-  await put('tasks', { ...t, deletedAt: nowISO(), updatedAt: nowISO() });
+  await putTracked('tasks', { ...t, deletedAt: nowISO(), updatedAt: nowISO() });
   emit('tasks');
 }
 
@@ -195,14 +306,14 @@ export async function saveHabit(habit) {
     archived: false,
     ...habit,
   });
-  await put('habits', rec);
+  await putTracked('habits', rec);
   emit('habits');
   return rec;
 }
 export async function deleteHabit(id) {
   const h = await get('habits', id);
   if (!h) return;
-  await put('habits', { ...h, deletedAt: nowISO(), updatedAt: nowISO() });
+  await putTracked('habits', { ...h, deletedAt: nowISO(), updatedAt: nowISO() });
   emit('habits');
 }
 
@@ -231,7 +342,7 @@ async function findCompletion(kind, refId, date) {
 export async function setCompletion(kind, refId, date, count) {
   const existing = await findCompletion(kind, refId, date);
   const rec = stamp({ ...(existing || { kind, refId, date }), count: Math.max(0, count) });
-  await put('completions', rec);
+  await putTracked('completions', rec);
   emit('completions');
   return rec.count;
 }
@@ -261,7 +372,7 @@ export async function saveSettings(patch) {
   const cur = await getSettings();
   const value = { ...cur, ...patch };
   const rec = await get('meta', 'settings');
-  await put('meta', stamp({ ...(rec || {}), id: 'settings', value }));
+  await putTracked('meta', stamp({ ...(rec || {}), id: 'settings', value }));
   emit('settings');
   return value;
 }
@@ -271,7 +382,7 @@ export async function getMeta(key, fallback = null) {
 }
 export async function setMeta(key, value, { silent = true } = {}) {
   const rec = await get('meta', key);
-  await put('meta', stamp({ ...(rec || {}), id: key, value }));
+  await putTracked('meta', stamp({ ...(rec || {}), id: key, value }));
   if (!silent) emit('meta');
 }
 
@@ -337,6 +448,7 @@ export async function importAll(obj, { mode = 'merge' } = {}) {
     if (mode === 'replace') {
       await clearStore(s);
       await putMany(s, incoming);
+      markDirty(s, incoming.map((r) => r.id));
       continue;
     }
     const current = new Map((await all(s)).map((r) => [r.id, r]));
@@ -356,6 +468,7 @@ export async function importAll(obj, { mode = 'merge' } = {}) {
         .filter(Boolean);
     }
     await putMany(s, toWrite);
+    markDirty(s, toWrite.map((r) => r.id));
   }
   emit('all');
   return v.summary;

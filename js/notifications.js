@@ -5,8 +5,9 @@
 // якогось нагадування. Якщо настав — показує системне сповіщення через service worker
 // (registration.showNotification) і грає звук.
 //
-// Пізніше (Supabase): сервер надсилатиме Web Push за розкладом. Для цього вже є
-// subscribeToPush() нижче та обробники 'push' і 'notificationclick' у sw.js.
+// Після входу в акаунт сервер (Supabase Edge Function send-reminders, щохвилини) надсилає
+// Web Push і на закритий додаток. Пристрої з активною підпискою не дублюють сповіщення
+// локально (див. serverPushOn). Підписка — subscribeToPush() нижче + sync.registerPush().
 
 import * as store from './storage.js';
 import {
@@ -113,6 +114,15 @@ function describe(ev) {
   return `Нагадування ${off} · ${dayWord}о ${occ.time}`;
 }
 
+/** Цей пристрій підписаний на пуші з сервера — сервер сам надішле сповіщення, дублювати не треба */
+function serverPushOn() {
+  try {
+    return !!localStorage.getItem('rytm.push') && !!localStorage.getItem('rytm.auth') && Notification.permission === 'granted';
+  } catch {
+    return false;
+  }
+}
+
 async function fire(ev, settings) {
   const isHabit = !!ev.habit;
   const title = isHabit ? `${ev.habit.emoji || ''} ${ev.habit.name}`.trim() : ev.occ.task.title;
@@ -124,8 +134,9 @@ async function fire(ev, settings) {
     { action: 'done', title: 'Виконано' },
     { action: 'snooze15', title: 'Відкласти на 15 хв' },
   ];
-  let shown = false;
-  if (settings.notificationsEnabled) shown = await showSystemNotification({ title, body, tag: ev.id, data, actions });
+  const viaServer = serverPushOn();
+  let shown = viaServer;
+  if (settings.notificationsEnabled && !viaServer) shown = await showSystemNotification({ title, body, tag: ev.id, data, actions });
   if (!settings.mute) playSound(settings.sound, settings.volume);
   const detail = { id: ev.id, title, body, data, shown, at: ev.at };
   window.dispatchEvent(new CustomEvent('rytm:reminder', { detail }));
@@ -185,7 +196,7 @@ export async function checkReminders() {
           const nTasks = occurrencesForDay(tasks, doneSet, today).filter((o) => !o.done).length;
           const nHabits = habits.filter((h) => !h.archived && isHabitScheduled(h, today) && (counts.get(h.id)?.get(today) || 0) < habitTarget(h)).length;
           const body = `Сьогодні ${nTasks} ${plural(nTasks, 'завдання', 'завдання', 'завдань')} і ${nHabits} ${plural(nHabits, 'звичка', 'звички', 'звичок')}`;
-          if (settings.notificationsEnabled) await showSystemNotification({ title: 'Доброго ранку!', body, tag: key, data: { kind: 'summary', url: './#/today' } });
+          if (settings.notificationsEnabled && !serverPushOn()) await showSystemNotification({ title: 'Доброго ранку!', body, tag: key, data: { kind: 'summary', url: './#/today' } });
           if (!settings.mute) playSound(settings.sound, settings.volume);
           window.dispatchEvent(new CustomEvent('rytm:reminder', { detail: { id: key, title: 'Доброго ранку!', body, data: { kind: 'summary' } } }));
           handlers.onFired({ id: key, title: 'Доброго ранку!', body, data: { kind: 'summary' } });
@@ -244,7 +255,7 @@ export function startScheduler(h = {}) {
   return checkReminders();
 }
 
-/* ------------------- Підготовка до Web Push (бекенд пізніше) ------------------- */
+/* ------------------------------- Web Push -------------------------------- */
 
 function urlBase64ToUint8Array(base64) {
   const padding = '='.repeat((4 - (base64.length % 4)) % 4);

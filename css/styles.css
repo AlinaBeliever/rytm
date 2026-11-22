@@ -601,3 +601,21 @@ dialog.modal.closing { animation: sheet-out 0.16s ease-in forwards; }
 @media print {
   .nav, .fab, .toast-region { display: none; }
 }
+
+/* ---------- Звички поруч із завданнями (Сьогодні, Тиждень) ---------- */
+.kind-switch { margin-bottom: 4px; }
+.day-habits { margin: 4px 0 2px; }
+.day-habits .count { margin-left: 4px; }
+.day-tasks-h { margin: 14px 0 6px; color: var(--muted); }
+.habit-list.compact { gap: 6px; }
+.habit-list.compact .habit { min-height: 52px; padding: 4px 8px 4px 6px; border-radius: 12px; }
+.habit-list.compact .habit-info { min-height: 40px; gap: 10px; }
+.habit-list.compact .habit-emoji { width: 34px; height: 34px; font-size: 20px; border-radius: 10px; }
+.habit-list.compact .habit-sub { font-size: 0.75rem; }
+.habit-list.compact .habit-check { width: 40px; height: 40px; border-width: 2.2px; }
+.habit-list.compact .habit-check .ic { width: 22px; height: 22px; }
+.habit-list.compact .habit-plus { min-width: 44px; height: 38px; }
+.habit.is-done .habit-name { text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--text) 40%, transparent); color: var(--muted); }
+.habit-check:disabled, .habit-plus:disabled { opacity: 0.4; cursor: default; }
+.auth-form { display: flex; flex-direction: column; gap: 10px; }
+.auth-msg { margin: 0; }

@@ -2,6 +2,7 @@
 // нагадування, service worker.
 import * as store from './storage.js';
 import * as notif from './notifications.js';
+import * as sync from './sync.js';
 import { todayISO, addDays, startOfWeek, snoozeTarget } from './logic.js';
 import { state, ui, saveUI } from './state.js';
 import { applyTheme } from './theme.js';
@@ -337,6 +338,13 @@ async function boot() {
     await handleAction(p);
   }
   startReminders();
+  sync.startAutoSync();
+  // сторінка налаштувань показує стан входу/синхронізації — перемальовуємо при його зміні
+  let shownState = sync.status.state;
+  sync.onStatus((st) => {
+    if (st.state !== shownState && parseHash().name === 'settings') ctx.refresh();
+    shownState = st.state;
+  });
   document.documentElement.classList.add('ready');
 }
 

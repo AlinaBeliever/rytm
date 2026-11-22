@@ -1,7 +1,7 @@
 // Екрани завдань: День (Сьогодні), Тиждень, Без дати. Форма завдання. Дії над завданнями.
 import * as store from '../storage.js';
 import {
-  todayISO, addDays, startOfWeek, weekday, occurrencesForDay, overdueItems, sortOpen, taskDoneSet,
+  todayISO, addDays, startOfWeek, weekday, occurrencesForDay, habitCounts, isHabitScheduled, habitTarget, overdueItems, sortOpen, taskDoneSet,
   applySnooze, moveOccurrence, parseQuickAdd, occKey, localDateTime,
 } from '../logic.js';
 import { icon } from './icons.js';
@@ -11,6 +11,8 @@ import {
 } from './components.js';
 import { state, ui, saveUI } from '../state.js';
 import { enableDrag } from './drag.js';
+import { habitItem, habitAct, openHabitForm } from './habits.js';
+import { kindSwitchHtml, bindKindSwitch } from './components.js';
 
 export const PRIORITIES = [
   { v: 1, label: 'Високий', cls: 'p1' },
@@ -30,8 +32,20 @@ const REPEAT_LABEL = { daily: 'щодня', weekdays: 'по буднях', weekl
 /* ------------------------------ Дані ------------------------------- */
 
 async function loadTaskData() {
-  const [tasks, completions] = await Promise.all([store.getTasks(), store.getCompletions({ kind: 'task' })]);
-  return { tasks, doneSet: taskDoneSet(completions) };
+  const [tasks, completions, habits] = await Promise.all([store.getTasks(), store.getCompletions(), store.getHabits()]);
+  return {
+    tasks,
+    doneSet: taskDoneSet(completions),
+    habits: habits.filter((h) => !h.archived),
+    habitCounts: habitCounts(completions),
+  };
+}
+
+/** Звички, що припадають на день. Майбутні дні — тільки для перегляду (відмітити можна тільки сьогодні й минуле). */
+function habitsForDay(habits, counts, date, today) {
+  const list = habits.filter((h) => isHabitScheduled(h, date));
+  const open = list.filter((h) => (counts.get(h.id)?.get(date) || 0) < habitTarget(h)).length;
+  return { list, open, html: list.map((h) => habitItem(h, counts, date, today, { readonly: date > today })).join('') };
 }
 
 /* ---------------------------- Дії ---------------------------------- */
@@ -148,7 +162,8 @@ function quickAdd(placeholder) {
 export async function renderDay(root, ctx) {
   const today = todayISO();
   const sel = state.selectedDate;
-  const { tasks, doneSet } = await loadTaskData();
+  const { tasks, doneSet, habits, habitCounts: hCounts } = await loadTaskData();
+  const hDay = habitsForDay(habits, hCounts, sel, today);
   const occ = occurrencesForDay(tasks, doneSet, sel);
   const order = (await store.getMeta('order:day:' + sel)) || [];
   const open = sortOpen(occ.filter((o) => !o.done), order);
@@ -189,12 +204,22 @@ export async function renderDay(root, ctx) {
       </section>`
         : ''
     }
+    ${
+      hDay.list.length
+        ? `<section class="day-habits" data-flip="day-habits" aria-labelledby="dh-h">
+        <div class="block-head"><h2 id="dh-h" class="block-title">Звички <span class="count">${hDay.list.length - hDay.open}/${hDay.list.length}</span></h2></div>
+        <ul class="habit-list compact">${hDay.html}</ul></section>`
+        : ''
+    }
+    ${hDay.list.length && (open.length || done.length) ? '<h2 class="block-title day-tasks-h">Завдання</h2>' : ''}
     <ul class="task-list open-list" data-list="day:${sel}" aria-label="Невиконані завдання">${open.map((o) => taskRow(o)).join('')}</ul>
     ${
-      !open.length
-        ? `<div class="empty" data-flip="empty">${done.length ? '<p><strong>Усе виконано!</strong></p><p class="muted">Чудовий день.</p>' : `<p class="muted">На цей день завдань немає.</p>`}
-           <button type="button" class="btn" data-action="new-task">${icon('plus')} Додати завдання</button></div>`
-        : ''
+      !open.length && !hDay.list.length
+        ? `<div class="empty" data-flip="empty">${done.length ? '<p><strong>Усе виконано!</strong></p><p class="muted">Чудовий день.</p>' : `<p class="muted">На цей день нічого немає.</p>`}
+           <button type="button" class="btn" data-action="new-task">${icon('plus')} Додати</button></div>`
+        : !open.length && done.length
+          ? '<p class="muted small" data-flip="empty">Усі завдання виконано.</p>'
+          : ''
     }
     ${doneBlock(done, 'day')}
   `;
@@ -220,7 +245,7 @@ export async function renderWeek(root, ctx) {
   const today = todayISO();
   const ws = state.weekStart;
   const days = Array.from({ length: 7 }, (_, i) => addDays(ws, i));
-  const { tasks, doneSet } = await loadTaskData();
+  const { tasks, doneSet, habits, habitCounts: hCounts } = await loadTaskData();
   const weekTasks = tasks.filter((t) => !t.date && t.weekOf === ws && !t.repeat);
   const wOrder = (await store.getMeta('order:week:' + ws)) || [];
   const wOcc = weekTasks.map((t) => ({ key: occKey(t.id, 'w' + ws), task: t, occDate: null, date: null, time: null, done: !!t.done, recurring: false }));
@@ -234,14 +259,16 @@ export async function renderWeek(root, ctx) {
     const open = sortOpen(occ.filter((o) => !o.done), order);
     const done = occ.filter((o) => o.done);
     const collapsed = state.weekCollapsed[d] ?? (d < today);
+    const hd = habitsForDay(habits, hCounts, d, today);
     blocks.push(`<section class="week-day ${d === today ? 'is-today' : ''} ${collapsed ? 'collapsed' : ''}" data-date="${d}">
       <div class="week-day-head">
         <button type="button" class="wd-toggle" data-action="toggle-weekday" data-date="${d}" aria-expanded="${!collapsed}">
           ${icon('down', 'chev')}<span class="wd-name">${esc(cap(weekdayShort(d)))}</span><span class="wd-date">${esc(shortDM(d))}</span>
-          <span class="count" aria-label="${open.length} невиконаних">${open.length || ''}</span></button>
+          <span class="count" aria-label="${open.length + hd.open} невиконаних">${open.length + hd.open || ''}</span></button>
         <a class="wd-open" href="#/today" data-action="open-day" data-date="${d}" aria-label="Відкрити день ${esc(dayMonth(d))}">${icon('right')}</a>
       </div>
       <div class="week-day-body">
+        ${hd.list.length ? `<ul class="habit-list compact">${hd.html}</ul>` : ''}
         <ul class="task-list compact" data-list="day:${d}">${open.map((o) => taskRow(o)).join('')}</ul>
         ${done.length ? `<ul class="task-list compact done-list">${done.map((o) => taskRow(o, { draggable: false })).join('')}</ul>` : ''}
         <button type="button" class="add-inline" data-action="new-task" data-date="${d}">${icon('plus', 'ic-sm')} Додати</button>
@@ -318,6 +345,12 @@ function bindTaskList(root, ctx, { defaults }) {
     if (!a || !root.contains(a)) return;
     if (a.closest('[data-drag-suppress]')) return;
     const act = a.dataset.action;
+    if (act === 'habit-toggle' || act === 'habit-inc' || act === 'habit-dec') {
+      const hid = a.closest('[data-habit]')?.dataset.habit;
+      const date = a.closest('.week-day')?.dataset.date || state.selectedDate;
+      if (hid && date <= todayISO()) await habitAct(hid, date, act.slice(6));
+      return;
+    }
     switch (act) {
       case 'toggle': {
         const k = keyOf(a);
@@ -478,6 +511,7 @@ export async function openTaskForm(task, { occDate = null, defaults = {} } = {})
     className: 'modal-form',
     render(el, close) {
       el.innerHTML = `<form class="task-form" novalidate>
+        ${isNew ? kindSwitchHtml('task') : ''}
         <label class="field"><span>Назва</span>
           <input name="title" type="text" required maxlength="200" value="${esc(t.title)}" placeholder="Що потрібно зробити?" ${isNew ? 'autofocus' : ''}></label>
         <label class="field"><span>Нотатка <span class="muted">(необов'язково)</span></span>
@@ -526,6 +560,11 @@ export async function openTaskForm(task, { occDate = null, defaults = {} } = {})
         </div>
       </form>`;
       const f = el.querySelector('form');
+      bindKindSwitch(f, 'task', () => {
+        const prefillName = f.elements.title.value.trim();
+        close();
+        openHabitForm(null, { prefillName });
+      });
       const sync = () => {
         const w = f.when.value;
         el.querySelectorAll('.when-day').forEach((n) => (n.hidden = w !== 'day'));
@@ -566,7 +605,7 @@ export async function openTaskForm(task, { occDate = null, defaults = {} } = {})
       });
       f.addEventListener('submit', async (e) => {
         e.preventDefault();
-        const title = f.title.value.trim();
+        const title = f.elements.title.value.trim();
         if (!title) {
           f.title.setCustomValidity('Введіть назву');
           f.title.reportValidity();

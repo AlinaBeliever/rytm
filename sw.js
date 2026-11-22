@@ -1,6 +1,6 @@
 // sw.js — service worker «Ритму»: офлайн-робота, сповіщення, підготовка до Web Push.
 // Після змін у файлах додатку збільште VERSION — тоді всі пристрої отримають оновлення.
-const VERSION = 'rytm-v1.0.0';
+const VERSION = 'rytm-v1.1.0';
 const ASSETS = [
   './',
   'index.html',
@@ -14,6 +14,8 @@ const ASSETS = [
   'js/sounds.js',
   'js/samples.js',
   'js/notifications.js',
+  'js/config.js',
+  'js/sync.js',
   'js/ui/icons.js',
   'js/ui/components.js',
   'js/ui/tasks.js',

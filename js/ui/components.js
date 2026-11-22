@@ -178,3 +178,18 @@ export function toast(message, { action, onAction, timeout = 4000 } = {}) {
     });
   setTimeout(remove, timeout);
 }
+
+/** Перемикач «Завдання / Звичка» зверху форм додавання. onPick(kind) викликається при виборі іншого типу. */
+export function kindSwitchHtml(active) {
+  return `<div class="seg-radio kind-switch" role="radiogroup" aria-label="Що додати">
+    <label><input type="radio" name="kind" value="task" ${active === 'task' ? 'checked' : ''}><span>Завдання</span></label>
+    <label><input type="radio" name="kind" value="habit" ${active === 'habit' ? 'checked' : ''}><span>Звичка</span></label>
+  </div>`;
+}
+export function bindKindSwitch(form, active, onPick) {
+  form.querySelectorAll('[name="kind"]').forEach((r) =>
+    r.addEventListener('change', () => {
+      if (r.checked && r.value !== active) onPick(r.value);
+    })
+  );
+}

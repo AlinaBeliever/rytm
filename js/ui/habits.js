@@ -4,7 +4,7 @@ import {
   todayISO, addDays, weekday, startOfWeek, habitTarget, isHabitScheduled, habitCounts, habitStats, weeklyBars,
 } from '../logic.js';
 import { icon } from './icons.js';
-import { esc, openModal, confirmDialog, toast, prettyDate, relativeDayLabel, dayMonth, WEEKDAYS_SHORT, plural, monthYear, weekdayShort, shortDM } from './components.js';
+import { kindSwitchHtml, bindKindSwitch, esc, openModal, confirmDialog, toast, prettyDate, relativeDayLabel, dayMonth, WEEKDAYS_SHORT, plural, monthYear, weekdayShort, shortDM } from './components.js';
 import { ring, heatmap, weekBars, monthCalendar } from './charts.js';
 import { state, ui, saveUI } from '../state.js';
 
@@ -29,7 +29,7 @@ function streakLabel(s) {
 
 /* --------------------------- Дії відмітки -------------------------- */
 
-async function habitAct(habitId, date, act) {
+export async function habitAct(habitId, date, act) {
   const h = await store.getHabit(habitId);
   if (!h) return;
   const target = habitTarget(h);
@@ -49,6 +49,42 @@ async function habitAct(habitId, date, act) {
 
 /* ------------------------------ Список ----------------------------- */
 
+/** Рядок звички (однаково виглядає на екранах «Звички», «Сьогодні» і «Тиждень»). readonly — майбутній день: без відмітки. */
+export function habitItem(h, counts, date, today, { readonly = false } = {}) {
+  const c = counts.get(h.id) || new Map();
+  const cnt = c.get(date) || 0;
+  const target = habitTarget(h);
+  const done = cnt >= target;
+  const st = habitStats(h, c, today);
+  let sub = [freqLabel(h)];
+  if (h.freq?.type === 'weekly') {
+    const ws = startOfWeek(date);
+    let n = 0;
+    for (let i = 0; i < 7; i++) if ((c.get(addDays(ws, i)) || 0) >= target) n++;
+    sub = [`${n} з ${h.freq.times} цього тижня`];
+  }
+  if (goalLabel(h)) sub.push(goalLabel(h));
+  const sl = streakLabel(st);
+  const name = esc(h.name);
+  const control =
+    h.goal?.type === 'count'
+      ? `<div class="habit-count">
+          ${cnt > 0 && !readonly ? `<button type="button" class="icon-btn subtle" data-action="habit-dec" aria-label="Мінус один: ${name}">${icon('minus', 'ic-sm')}</button>` : ''}
+          ${ring(cnt, target, h.color, 44)}
+          <button type="button" class="habit-plus ${done ? 'is-done' : ''}" data-action="habit-inc" ${readonly ? 'disabled' : ''} aria-label="Плюс один: ${name} (${cnt} з ${target})">+1</button>
+        </div>`
+      : `<button type="button" class="habit-check ${done ? 'is-done' : ''}" data-action="habit-toggle" aria-pressed="${done}" ${readonly ? 'disabled' : ''}
+          aria-label="${done ? 'Зняти відмітку' : 'Відмітити'}: ${name}">${icon('check')}</button>`;
+  return `<li class="habit ${done ? 'is-done' : ''}" data-habit="${h.id}" style="--hc:${esc(h.color)}" data-flip="habit-${h.id}-${date}">
+    <a class="habit-info" href="#/habit/${h.id}" aria-label="Статистика: ${name}">
+      <span class="habit-emoji" aria-hidden="true">${esc(h.emoji || '✅')}</span>
+      <span class="habit-text"><span class="habit-name">${name}${h.sample ? ' <span class="tag">приклад</span>' : ''}</span>
+        <span class="habit-sub">${esc(sub.join(' · '))}${sl ? ` <span class="streak">${sl}</span>` : ''}</span></span>
+    </a>
+    ${control}
+  </li>`;
+}
+
 export async function renderHabits(root, ctx) {
   const today = todayISO();
   const date = state.habitDate;
@@ -58,40 +94,7 @@ export async function renderHabits(root, ctx) {
   const sched = active.filter((h) => isHabitScheduled(h, date));
   const other = active.filter((h) => !isHabitScheduled(h, date));
 
-  const item = (h) => {
-    const c = counts.get(h.id) || new Map();
-    const cnt = c.get(date) || 0;
-    const target = habitTarget(h);
-    const done = cnt >= target;
-    const st = habitStats(h, c, today);
-    let sub = [freqLabel(h)];
-    if (h.freq?.type === 'weekly') {
-      const ws = startOfWeek(date);
-      let n = 0;
-      for (let i = 0; i < 7; i++) if ((c.get(addDays(ws, i)) || 0) >= target) n++;
-      sub = [`${n} з ${h.freq.times} цього тижня`];
-    }
-    if (goalLabel(h)) sub.push(goalLabel(h));
-    const sl = streakLabel(st);
-    const name = esc(h.name);
-    const control =
-      h.goal?.type === 'count'
-        ? `<div class="habit-count">
-            ${cnt > 0 ? `<button type="button" class="icon-btn subtle" data-action="habit-dec" aria-label="Мінус один: ${name}">${icon('minus', 'ic-sm')}</button>` : ''}
-            ${ring(cnt, target, h.color, 44)}
-            <button type="button" class="habit-plus ${done ? 'is-done' : ''}" data-action="habit-inc" aria-label="Плюс один: ${name} (${cnt} з ${target})">+1</button>
-          </div>`
-        : `<button type="button" class="habit-check ${done ? 'is-done' : ''}" data-action="habit-toggle" aria-pressed="${done}"
-            aria-label="${done ? 'Зняти відмітку' : 'Відмітити'}: ${name}">${icon('check')}</button>`;
-    return `<li class="habit ${done ? 'is-done' : ''}" data-habit="${h.id}" style="--hc:${esc(h.color)}" data-flip="habit-${h.id}">
-      <a class="habit-info" href="#/habit/${h.id}" aria-label="Статистика: ${name}">
-        <span class="habit-emoji" aria-hidden="true">${esc(h.emoji || '✅')}</span>
-        <span class="habit-text"><span class="habit-name">${name}${h.sample ? ' <span class="tag">приклад</span>' : ''}</span>
-          <span class="habit-sub">${esc(sub.join(' · '))}${sl ? ` <span class="streak">${sl}</span>` : ''}</span></span>
-      </a>
-      ${control}
-    </li>`;
-  };
+  const item = (h) => habitItem(h, counts, date, today);
 
   root.innerHTML = `
     <header class="view-head between"><h1 class="view-title">Звички</h1>
@@ -152,10 +155,10 @@ export async function renderHabits(root, ctx) {
 
 /* ------------------------------ Форма ------------------------------ */
 
-export function openHabitForm(habit) {
+export function openHabitForm(habit, { prefillName = '' } = {}) {
   const isNew = !habit;
   const h = habit || {
-    name: '',
+    name: prefillName,
     emoji: '💧',
     color: HABIT_COLORS[0],
     freq: { type: 'daily' },
@@ -168,6 +171,7 @@ export function openHabitForm(habit) {
     className: 'modal-form',
     render(el, close) {
       el.innerHTML = `<form class="habit-form" novalidate>
+        ${isNew ? kindSwitchHtml('habit') : ''}
         <div class="row-emoji">
           <label class="field emoji-field"><span>Емодзі</span><input name="emoji" type="text" maxlength="4" value="${esc(h.emoji)}" aria-label="Емодзі"></label>
           <label class="field grow"><span>Назва</span><input name="name" type="text" maxlength="80" required value="${esc(h.name)}" placeholder="Наприклад: Пити воду" ${isNew ? 'autofocus' : ''}></label>
@@ -203,6 +207,12 @@ export function openHabitForm(habit) {
         </div>
       </form>`;
       const f = el.querySelector('form');
+      bindKindSwitch(f, 'habit', async () => {
+        const title = f.name.value.trim();
+        close();
+        const { openTaskForm } = await import('./tasks.js');
+        openTaskForm(null, { defaults: { title, date: state.selectedDate } });
+      });
       const sync = () => {
         el.querySelector('.f-weekly').hidden = f.freq.value !== 'weekly';
         el.querySelector('.f-days').hidden = f.freq.value !== 'days';

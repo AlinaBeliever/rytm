@@ -1,6 +1,7 @@
 // Налаштування: тема, нагадування, звук, тихі години, ранкове зведення, експорт/імпорт, iPhone.
 import * as store from '../storage.js';
 import * as notif from '../notifications.js';
+import * as sync from '../sync.js';
 import { SOUNDS, playSound } from '../sounds.js';
 import { icon } from './icons.js';
 import { esc, openModal, confirmDialog, toast } from './components.js';
@@ -36,8 +37,46 @@ export async function promptInstall() {
 function notifStatus(settings, p) {
   if (p === 'unsupported') return { text: 'Цей браузер не підтримує системні сповіщення. Нагадування буде видно в додатку зі звуком.', on: false };
   if (p === 'denied') return { text: 'Сповіщення заблоковані в налаштуваннях браузера. Дозвольте їх для цього сайту, щоб отримувати нагадування.', on: false };
-  if (p === 'granted' && settings.notificationsEnabled) return { text: 'Нагадування увімкнені.', on: true };
-  return { text: 'Додаток покаже сповіщення в потрібний час, поки він відкритий або згорнутий. Дозвіл попросимо тільки після натискання кнопки.', on: false };
+  if (p === 'granted' && settings.notificationsEnabled) {
+    return { text: sync.pushActive() ? 'Нагадування увімкнені. Цей пристрій отримує їх із сервера, навіть коли додаток закритий.' : 'Нагадування увімкнені.', on: true };
+  }
+  return { text: sync.isSignedIn()
+    ? 'Сповіщення приходитимуть на цей пристрій, навіть коли додаток закритий. Дозвіл попросимо тільки після натискання кнопки.'
+    : 'Додаток покаже сповіщення в потрібний час, поки він відкритий або згорнутий. Увійдіть в акаунт, щоб вони приходили й на закритий додаток. Дозвіл попросимо тільки після натискання кнопки.', on: false };
+}
+
+const SYNC_TEXT = { idle: 'Синхронізовано', syncing: 'Синхронізація…', error: 'Помилка синхронізації', offline: 'Немає інтернету — синхронізую, коли з’явиться' };
+
+function accountCard() {
+  const user = sync.getUser();
+  if (user) {
+    const st = sync.status;
+    const when = st.lastSync ? ` · ${new Date(st.lastSync).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' })}` : '';
+    return `<section class="card settings-card" aria-labelledby="s-acc">
+      <h2 class="card-title" id="s-acc">Акаунт</h2>
+      <p class="small"><strong>${esc(user.email)}</strong></p>
+      <p class="muted small" role="status">${esc(SYNC_TEXT[st.state] || '')}${st.state === 'idle' ? esc(when) : ''}${st.error && st.state === 'error' ? `<br><span class="warn">${esc(st.error)}</span>` : ''}</p>
+      <p class="muted small">Завдання й звички синхронізуються між усіма пристроями, де ви увійшли в цей акаунт.</p>
+      <div class="btn-row">
+        <button type="button" class="btn" data-action="sync-now">Синхронізувати зараз</button>
+        <button type="button" class="btn" data-action="sign-out">Вийти</button>
+      </div>
+    </section>`;
+  }
+  return `<section class="card settings-card" aria-labelledby="s-acc">
+    <h2 class="card-title" id="s-acc">Акаунт</h2>
+    <p class="muted small">Увійдіть, щоб дані були на всіх пристроях і нагадування приходили навіть коли додаток закритий. Без входу все працює тільки на цьому пристрої.</p>
+    <form class="auth-form" data-action="auth-form" novalidate>
+      <label class="field"><span>Пошта</span><input name="email" type="email" autocomplete="email" inputmode="email" required></label>
+      <label class="field"><span>Пароль</span><input name="password" type="password" autocomplete="current-password" minlength="6" required></label>
+      <p class="hint warn auth-msg" role="alert" hidden></p>
+      <div class="btn-row">
+        <button type="submit" class="btn btn-primary" data-mode="in">Увійти</button>
+        <button type="submit" class="btn" data-mode="up">Створити акаунт</button>
+        <button type="button" class="link-btn" data-action="forgot">Забули пароль?</button>
+      </div>
+    </form>
+  </section>`;
 }
 
 export async function renderSettings(root, ctx) {
@@ -50,6 +89,8 @@ export async function renderSettings(root, ctx) {
 
   root.innerHTML = `
     <header class="view-head"><h1 class="view-title">Налаштування</h1></header>
+
+    ${accountCard()}
 
     <section class="card settings-card" aria-labelledby="s-look">
       <h2 class="card-title" id="s-look">Вигляд</h2>
@@ -109,7 +150,7 @@ export async function renderSettings(root, ctx) {
 
     <section class="card settings-card" aria-labelledby="s-data">
       <h2 class="card-title" id="s-data">Дані</h2>
-      <p class="muted small">Усі дані зберігаються тільки на цьому пристрої. Поки немає синхронізації, час від часу робіть резервну копію.</p>
+      <p class="muted small">${sync.isSignedIn() ? 'Дані зберігаються на пристрої й у вашому акаунті. Резервна копія в JSON — додатковий запас.' : 'Без входу в акаунт дані зберігаються тільки на цьому пристрої — час від часу робіть резервну копію.'}</p>
       <div class="btn-row">
         <button type="button" class="btn" data-action="export">${icon('download', 'ic-sm')} Експорт у JSON</button>
         <button type="button" class="btn" data-action="import">${icon('upload', 'ic-sm')} Імпорт з JSON</button>
@@ -184,15 +225,77 @@ export async function renderSettings(root, ctx) {
     if (e.target.name === 'volume') root.querySelector('#vol-out').textContent = `${Math.round(e.target.value * 100)}%`;
   });
 
+  root.addEventListener('submit', async (e) => {
+    const f = e.target.closest('[data-action="auth-form"]');
+    if (!f) return;
+    e.preventDefault();
+    const mode = e.submitter?.dataset.mode || 'in';
+    const email = f.email.value.trim();
+    const password = f.password.value;
+    const msg = f.querySelector('.auth-msg');
+    const show = (t) => {
+      msg.textContent = t;
+      msg.hidden = !t;
+    };
+    if (!email || !password) return show('Введіть пошту й пароль.');
+    f.querySelectorAll('button').forEach((b) => (b.disabled = true));
+    show('');
+    try {
+      if (mode === 'up') {
+        const r = await sync.signUp(email, password);
+        if (r === 'confirm') {
+          show('');
+          toast('Перевірте пошту: натисніть посилання в листі, потім поверніться й натисніть «Увійти».', { timeout: 9000 });
+          f.querySelectorAll('button').forEach((b) => (b.disabled = false));
+          return;
+        }
+      } else await sync.signIn(email, password);
+      toast('Ви увійшли. Дані синхронізовано.');
+      if ((await store.getSettings()).notificationsEnabled) sync.registerPush().catch(() => {});
+      ctx.refresh();
+    } catch (err) {
+      show(err.message);
+      f.querySelectorAll('button').forEach((b) => (b.disabled = false));
+    }
+  });
+
   root.addEventListener('click', async (e) => {
     const a = e.target.closest('[data-action]');
     if (!a) return;
     switch (a.dataset.action) {
+      case 'sync-now':
+        await sync.sync({ force: true });
+        break;
+      case 'sign-out':
+        if (await confirmDialog({ title: 'Вийти з акаунта?', text: 'Дані залишаться на цьому пристрої, але перестануть синхронізуватися, а сповіщення на закритий додаток припиняться.', ok: 'Вийти' })) {
+          await sync.signOut();
+          ctx.refresh();
+        }
+        break;
+      case 'forgot': {
+        const email = root.querySelector('.auth-form [name="email"]').value.trim();
+        if (!email) return toast('Спершу введіть пошту у відповідне поле');
+        try {
+          await sync.resetPassword(email);
+          toast('Якщо така пошта є, ми надіслали лист для відновлення пароля.', { timeout: 7000 });
+        } catch (err) {
+          toast(err.message);
+        }
+        break;
+      }
       case 'notif-on': {
         const p = await notif.requestPermission();
         if (p === 'granted') {
           await save({ notificationsEnabled: true });
-          toast('Нагадування увімкнено');
+          if (sync.isSignedIn()) {
+            try {
+              await sync.registerPush();
+              toast('Нагадування увімкнено — вони приходитимуть і на закритий додаток');
+            } catch (err) {
+              console.warn(err);
+              toast('Нагадування працюватимуть, поки додаток відкритий. Пуші з сервера підключити не вдалося.', { timeout: 7000 });
+            }
+          } else toast('Нагадування увімкнено');
         } else if (p === 'denied') {
           toast('Дозвіл не надано. Його можна змінити в налаштуваннях браузера.', { timeout: 6000 });
         }
@@ -201,6 +304,7 @@ export async function renderSettings(root, ctx) {
       }
       case 'notif-off':
         await save({ notificationsEnabled: false });
+        await sync.unregisterPush();
         ctx.refresh();
         break;
       case 'notif-test': {
@@ -223,10 +327,14 @@ export async function renderSettings(root, ctx) {
         ctx.refresh();
         break;
       case 'wipe': {
-        const ok = await confirmDialog({ title: 'Стерти всі дані?', text: 'Усі завдання, звички й статистика будуть видалені з цього пристрою. Спершу зробіть експорт, якщо дані потрібні.', ok: 'Стерти', danger: true });
+        const ok = await confirmDialog({ title: 'Стерти всі дані?', text: sync.isSignedIn() ? 'Дані на цьому пристрої буде стерто й знову завантажено з акаунта. Щоб прибрати завдання остаточно — видаліть їх у списках.' : 'Усі завдання, звички й статистика будуть видалені з цього пристрою. Спершу зробіть експорт, якщо дані потрібні.', ok: 'Стерти', danger: true });
         if (ok) {
           await store.clearAll();
           await store.setMeta('seeded', true);
+          if (sync.isSignedIn()) {
+            localStorage.removeItem('rytm.dirty');
+            await sync.sync({ first: false, force: true });
+          }
           toast('Дані стерто');
         }
         break;
