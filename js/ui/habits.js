@@ -1,7 +1,7 @@
 // Звички: щоденний список, форма, статистика звички, екран «Прогрес».
 import * as store from '../storage.js';
 import {
-  todayISO, addDays, weekday, startOfWeek, habitTarget, isHabitScheduled, habitCounts, habitStats, weeklyBars,
+  todayISO, addDays, weekday, startOfWeek, habitTarget, isHabitScheduled, habitCounts, habitStats, weeklyBars, habitMark, isHabitCounted,
 } from '../logic.js';
 import { icon } from './icons.js';
 import { kindSwitchHtml, bindKindSwitch, esc, openModal, confirmDialog, toast, prettyDate, relativeDayLabel, dayMonth, WEEKDAYS_SHORT, plural, monthYear, weekdayShort, shortDM } from './components.js';
@@ -29,9 +29,23 @@ function streakLabel(s) {
 
 /* --------------------------- Дії відмітки -------------------------- */
 
+async function setMark(h, date, mark) {
+  const dayMarks = { ...(h.dayMarks || {}) };
+  if (mark) dayMarks[date] = mark;
+  else delete dayMarks[date];
+  await store.saveHabit({ ...h, dayMarks });
+}
+
 export async function habitAct(habitId, date, act) {
-  const h = await store.getHabit(habitId);
+  let h = await store.getHabit(habitId);
   if (!h) return;
+  if (act === 'skip' || act === 'miss' || act === 'unmark') {
+    const cur = (await store.getCompletions({ kind: 'habit', refId: h.id, from: date, to: date }))[0]?.count || 0;
+    if (act !== 'unmark' && cur > 0) await store.setCompletion('habit', h.id, date, 0);
+    await setMark(h, date, act === 'unmark' ? null : act);
+    return;
+  }
+  if (habitMark(h, date)) await setMark(h, date, null);
   const target = habitTarget(h);
   if (h.goal?.type === 'count') {
     if (act === 'inc') await store.incrementCompletion('habit', h.id, date, 1);
@@ -75,13 +89,22 @@ export function habitItem(h, counts, date, today, { readonly = false } = {}) {
         </div>`
       : `<button type="button" class="habit-check ${done ? 'is-done' : ''}" data-action="habit-toggle" aria-pressed="${done}" ${readonly ? 'disabled' : ''}
           aria-label="${done ? 'Зняти відмітку' : 'Відмітити'}: ${name}">${icon('check')}</button>`;
-  return `<li class="habit ${done ? 'is-done' : ''}" data-habit="${h.id}" style="--hc:${esc(h.color)}" data-flip="habit-${h.id}-${date}">
+  const mark = habitMark(h, date);
+  const marks = readonly || done
+    ? ''
+    : mark
+      ? `<div class="habit-marks"><span class="mark-badge is-${mark}">${mark === 'skip' ? '⏭ Пропущено' : '✕ Не виконано'}</span>
+          <button type="button" class="btn btn-sm" data-action="habit-unmark">Скасувати</button></div>`
+      : `<div class="habit-marks"><button type="button" class="btn btn-sm" data-action="habit-skip">Пропустити</button>
+          <button type="button" class="btn btn-sm" data-action="habit-miss">Не виконано</button></div>`;
+  return `<li class="habit ${done ? 'is-done' : ''} ${mark ? 'is-' + mark : ''}" data-habit="${h.id}" style="--hc:${esc(h.color)}" data-flip="habit-${h.id}-${date}">
     <a class="habit-info" href="#/habit/${h.id}" aria-label="Статистика: ${name}">
       <span class="habit-emoji" aria-hidden="true">${esc(h.emoji || '✅')}</span>
       <span class="habit-text"><span class="habit-name">${name}${h.sample ? ' <span class="tag">приклад</span>' : ''}</span>
         <span class="habit-sub">${esc(sub.join(' · '))}${sl ? ` <span class="streak">${sl}</span>` : ''}</span></span>
     </a>
     ${control}
+    ${marks}
   </li>`;
 }
 
@@ -128,6 +151,11 @@ export async function renderHabits(root, ctx) {
         break;
       case 'habit-dec':
         await habitAct(hid, date, 'dec');
+        break;
+      case 'habit-skip':
+      case 'habit-miss':
+      case 'habit-unmark':
+        await habitAct(hid, date, a.dataset.action.slice(6));
         break;
       case 'new-habit':
         openHabitForm(null);
@@ -199,6 +227,11 @@ export function openHabitForm(habit, { prefillName = '' } = {}) {
           <label class="field"><span>Скільки за день</span><input name="target" type="number" min="1" max="999" value="${h.goal?.target || 8}"></label>
           <label class="field"><span>Одиниця</span><input name="unit" type="text" maxlength="20" value="${esc(h.goal?.unit || 'склянок')}" placeholder="склянок, хв…"></label>
         </div>
+        <div class="row2">
+          <label class="field"><span>Початок</span><input name="startDate" type="date" value="${esc(h.startDate || '')}"></label>
+          <label class="field"><span>Кінець</span><input name="endDate" type="date" value="${esc(h.endDate || '')}" ${h.endDate ? '' : 'disabled'}></label>
+        </div>
+        <label class="chip no-end"><input type="checkbox" name="noEnd" ${h.endDate ? '' : 'checked'}><span>Без кінця</span></label>
         <label class="field"><span>Нагадування <span class="muted">(необов'язково)</span></span>
           <input name="reminderTime" type="time" value="${esc(h.reminderTime || '')}"></label>
         <div class="modal-actions spread">
@@ -217,6 +250,9 @@ export function openHabitForm(habit, { prefillName = '' } = {}) {
         el.querySelector('.f-weekly').hidden = f.freq.value !== 'weekly';
         el.querySelector('.f-days').hidden = f.freq.value !== 'days';
         el.querySelector('.g-count').hidden = f.goal.value !== 'count';
+        f.endDate.disabled = f.noEnd.checked;
+        if (f.noEnd.checked) f.endDate.value = '';
+        else if (!f.endDate.value) f.endDate.value = f.startDate.value || todayISO();
       };
       f.addEventListener('change', sync);
       sync();
@@ -249,6 +285,14 @@ export function openHabitForm(habit, { prefillName = '' } = {}) {
           freq.days = ds.length ? ds : [weekday(todayISO())];
         }
         const goal = f.goal.value === 'count' ? { type: 'count', target: Math.max(1, Number(f.target.value) || 1), unit: f.unit.value.trim() } : { type: 'bool' };
+        const startDate = f.startDate.value || null;
+        const endDate = f.noEnd.checked ? null : f.endDate.value || null;
+        if (startDate && endDate && endDate < startDate) {
+          f.endDate.setCustomValidity('Кінець раніше початку');
+          f.endDate.reportValidity();
+          f.endDate.addEventListener('input', () => f.endDate.setCustomValidity(''), { once: true });
+          return;
+        }
         const habits = await store.getHabits();
         await store.saveHabit({
           ...h,
@@ -258,6 +302,8 @@ export function openHabitForm(habit, { prefillName = '' } = {}) {
           freq,
           goal,
           reminderTime: f.reminderTime.value || null,
+          startDate,
+          endDate,
           order: h.order ?? habits.length,
         });
         close('saved');
@@ -293,7 +339,7 @@ export async function renderHabitStats(root, ctx, id) {
       <h1 class="view-title habit-title" style="--hc:${esc(h.color)}"><span aria-hidden="true">${esc(h.emoji)}</span> ${esc(h.name)}</h1>
       <button type="button" class="icon-btn" data-action="edit-habit" aria-label="Редагувати звичку">${icon('edit')}</button>
     </header>
-    <p class="muted">${esc(freqLabel(h))}${goalLabel(h) ? ' · ціль: ' + esc(goalLabel(h)) : ''}${h.reminderTime ? ' · нагадування о ' + esc(h.reminderTime) : ''}</p>
+    <p class="muted">${esc(freqLabel(h))}${h.startDate ? ' · з ' + esc(shortDM(h.startDate)) : ''}${h.endDate ? ' до ' + esc(shortDM(h.endDate)) : ''}${goalLabel(h) ? ' · ціль: ' + esc(goalLabel(h)) : ''}${h.reminderTime ? ' · нагадування о ' + esc(h.reminderTime) : ''}</p>
     <section class="stat-cards" aria-label="Показники">
       <div class="stat"><div class="stat-v">${st.current}</div><div class="stat-l">поточна серія, ${unitL(st.current)}</div></div>
       <div class="stat"><div class="stat-v">${st.longest}</div><div class="stat-l">найдовша серія, ${unitL(st.longest)}</div></div>

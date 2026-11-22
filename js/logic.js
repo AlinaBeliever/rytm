@@ -300,11 +300,29 @@ export function habitTarget(h) {
   return h.goal && h.goal.type === 'count' ? Math.max(1, Number(h.goal.target) || 1) : 1;
 }
 
+/** Чи день потрапляє в період звички (початок і кінець необов'язкові) */
+export function habitInRange(h, iso) {
+  if (h.startDate && iso < h.startDate) return false;
+  if (h.endDate && iso > h.endDate) return false;
+  return true;
+}
+
 /** Чи звичка запланована на цей день. «N разів на тиждень» — будь-який день. */
 export function isHabitScheduled(h, iso) {
+  if (!habitInRange(h, iso)) return false;
   const f = h.freq || { type: 'daily' };
   if (f.type === 'days') return (f.days || []).includes(weekday(iso));
   return true;
+}
+
+/** Ручна позначка дня: 'skip' (пропущено, не рахується) або 'miss' (свідомо не виконано) */
+export function habitMark(h, iso) {
+  return (h.dayMarks && h.dayMarks[iso]) || null;
+}
+
+/** Запланований день, який рахується в серії та статистиці (пропущені дні — ні) */
+export function isHabitCounted(h, iso) {
+  return isHabitScheduled(h, iso) && habitMark(h, iso) !== 'skip';
 }
 
 /** Map<habitId, Map<date, count>> з масиву completions */
@@ -343,7 +361,8 @@ export function habitStats(h, counts /* Map date->count */, today) {
   for (const [d, c] of counts || []) if (c >= target && d <= today) doneSet.add(d);
   const doneDates = [...doneSet].sort();
   const created = h.createdAt ? toISODate(new Date(h.createdAt)) : today;
-  const start = doneDates.length && doneDates[0] < created ? doneDates[0] : created;
+  let start = doneDates.length && doneDates[0] < created ? doneDates[0] : created;
+  if (h.startDate && start < h.startDate) start = h.startDate;
   const f = h.freq || { type: 'daily' };
   const unit = f.type === 'weekly' ? 'weeks' : 'days';
 
@@ -369,7 +388,7 @@ export function habitStats(h, counts /* Map date->count */, today) {
       } else if (wk !== thisWeek) run = 0;
     }
   } else {
-    const sched = (d) => isHabitScheduled(h, d);
+    const sched = (d) => isHabitCounted(h, d);
     let d = today;
     if (sched(d) && !doneSet.has(d)) d = addDays(d, -1);
     let guard = 0;
@@ -429,7 +448,7 @@ export function completionRate(h, doneSet, today, days, start) {
     for (const v of perWeek.values()) done += v;
   } else {
     for (let d = from; d <= today; d = addDays(d, 1)) {
-      if (!isHabitScheduled(h, d)) continue;
+      if (!isHabitCounted(h, d)) continue;
       expected++;
       if (doneSet.has(d)) done++;
     }

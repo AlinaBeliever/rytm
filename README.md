@@ -182,7 +182,7 @@ node tests/e2e.cjs                   # браузер (потрібен Playwrig
 | Таблиця | Поля |
 |---|---|
 | `tasks` | `id uuid pk`, `user_id`, `title text`, `note text`, `date date`, `time time`, `week_of date`, `priority smallint`, `repeat jsonb`, `reminders int[]`, `done bool`, `done_at timestamptz`, `snoozed bool`, `exceptions jsonb`, `sample bool`, `created_at`, `updated_at`, `deleted_at` |
-| `habits` | `id uuid pk`, `user_id`, `name`, `emoji`, `color`, `freq jsonb`, `goal jsonb`, `reminder_time time`, `archived bool`, `order int`, `sample bool`, `created_at`, `updated_at`, `deleted_at` |
+| `habits` | `id uuid pk`, `user_id`, `name`, `emoji`, `color`, `freq jsonb`, `goal jsonb`, `reminder_time time`, `start_date date`, `end_date date`, `day_marks jsonb`, `archived bool`, `order int`, `sample bool`, `created_at`, `updated_at`, `deleted_at` |
 | `completions` | `id uuid pk`, `user_id`, `kind text ('task'/'habit')`, `ref_id uuid`, `date date`, `count int`, `created_at`, `updated_at`; **unique (user_id, kind, ref_id, date)** |
 | `settings` | `user_id pk`, `value jsonb` (ті самі поля, що зараз), `timezone text`, `updated_at` |
 | `push_subscriptions` | `id`, `user_id`, `endpoint text unique`, `p256dh text`, `auth text`, `user_agent`, `created_at` |

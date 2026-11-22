@@ -85,7 +85,9 @@ export function openModal({ title, label, render, className = '' }) {
     render(dlg.querySelector('.modal-body'), close, dlg);
     dlg.showModal();
     const first = dlg.querySelector('[autofocus]') || dlg.querySelector('.modal-body input, .modal-body button, .modal-body select');
-    if (first) first.focus();
+    // на телефоні не відкриваємо клавіатуру автоматично — вона зсуває форму
+    const touch = matchMedia('(pointer: coarse)').matches;
+    if (first && !(touch && first.matches('input, textarea, select'))) first.focus();
   });
 }
 

@@ -303,6 +303,9 @@ export async function saveHabit(habit) {
     freq: { type: 'daily' },
     goal: { type: 'bool' },
     reminderTime: null,
+    startDate: null,
+    endDate: null,
+    dayMarks: {},
     archived: false,
     ...habit,
   });

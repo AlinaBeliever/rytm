@@ -4,6 +4,7 @@ import {
   todayISO, addDays, startOfWeek, weekday, occurrencesForDay, habitCounts, isHabitScheduled, habitTarget, overdueItems, sortOpen, taskDoneSet,
   applySnooze, moveOccurrence, parseQuickAdd, occKey, localDateTime,
 } from '../logic.js';
+import { stickerPickerHtml, bindStickerPicker } from './stickers.js';
 import { icon } from './icons.js';
 import {
   esc, openModal, confirmDialog, snoozePicker, toast, weekdayShort, dayMonth, shortDM, prettyDate,
@@ -112,7 +113,7 @@ function taskRow(occ, { showDate = false, overdue = false, draggable = true } = 
       aria-label="${occ.done ? 'Повернути у невиконані' : 'Відмітити виконаним'}: ${title}" title="Пріоритет: ${pr.label}">
       <span class="box">${icon('check')}</span></button>
     <button type="button" class="task-main" data-action="open" aria-label="Відкрити: ${title}">
-      <span class="task-title">${title}</span>
+      <span class="task-title">${t.emoji ? `<span class="task-sticker" aria-hidden="true">${esc(t.emoji)}</span> ` : ''}${title}</span>
       ${meta.length ? `<span class="task-meta">${meta.join('')}</span>` : ''}
     </button>
     ${overdue ? `<button type="button" class="btn btn-sm" data-action="move-today">На сьогодні</button>` : ''}
@@ -345,7 +346,7 @@ function bindTaskList(root, ctx, { defaults }) {
     if (!a || !root.contains(a)) return;
     if (a.closest('[data-drag-suppress]')) return;
     const act = a.dataset.action;
-    if (act === 'habit-toggle' || act === 'habit-inc' || act === 'habit-dec') {
+    if (act === 'habit-toggle' || act === 'habit-inc' || act === 'habit-dec' || act === 'habit-skip' || act === 'habit-miss' || act === 'habit-unmark') {
       const hid = a.closest('[data-habit]')?.dataset.habit;
       const date = a.closest('.week-day')?.dataset.date || state.selectedDate;
       if (hid && date <= todayISO()) await habitAct(hid, date, act.slice(6));
@@ -514,6 +515,7 @@ export async function openTaskForm(task, { occDate = null, defaults = {} } = {})
         ${isNew ? kindSwitchHtml('task') : ''}
         <label class="field"><span>Назва</span>
           <input name="title" type="text" required maxlength="200" value="${esc(t.title)}" placeholder="Що потрібно зробити?" ${isNew ? 'autofocus' : ''}></label>
+        ${stickerPickerHtml(t.emoji, esc)}
         <label class="field"><span>Нотатка <span class="muted">(необов'язково)</span></span>
           <textarea name="note" rows="2" maxlength="2000">${esc(t.note || '')}</textarea></label>
         <fieldset class="field"><legend>Коли</legend>
@@ -565,6 +567,7 @@ export async function openTaskForm(task, { occDate = null, defaults = {} } = {})
         close();
         openHabitForm(null, { prefillName });
       });
+      bindStickerPicker(f);
       const sync = () => {
         const w = f.when.value;
         el.querySelectorAll('.when-day').forEach((n) => (n.hidden = w !== 'day'));
@@ -628,6 +631,7 @@ export async function openTaskForm(task, { occDate = null, defaults = {} } = {})
           ...t,
           title,
           note: f.note.value.trim(),
+          emoji: f.emoji.value || null,
           date: w === 'day' ? dateVal : null,
           weekOf: w === 'week' ? startOfWeek(dateVal) : null,
           time,

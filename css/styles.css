@@ -379,6 +379,16 @@ main {
   box-shadow: var(--shadow); padding: 8px 10px 8px 8px; min-height: 72px;
   border-left: 4px solid var(--hc);
 }
+.habit { flex-wrap: wrap; }
+.habit-marks { flex: 1 0 100%; display: flex; gap: 8px; align-items: center; padding-left: 4px; }
+.mark-badge { font-size: 0.85rem; font-weight: 600; color: var(--muted); }
+.habit.is-skip, .habit.is-miss { opacity: 0.85; }
+.habit.is-miss .habit-name { text-decoration: line-through; }
+.no-end { align-self: flex-start; }
+.sticker-grid { display: flex; flex-wrap: wrap; gap: 4px; max-height: 148px; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+.sticker-field { border: 0; padding: 0; margin: 0; }
+.emoji-btn.sel { outline: 2.5px solid var(--focus); }
+.task-sticker { margin-right: 2px; }
 .habit-info { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; text-decoration: none; color: inherit; border-radius: 10px; min-height: 48px; }
 .habit-emoji { font-size: 28px; width: 44px; height: 44px; display: grid; place-items: center; background: color-mix(in srgb, var(--hc) 14%, transparent); border-radius: 12px; flex: none; }
 .habit-text { display: flex; flex-direction: column; min-width: 0; }

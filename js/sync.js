@@ -22,11 +22,11 @@ const TABLES = {
     conflict: 'id',
     fields: {
       id: 'id', title: 'title', note: 'note', date: 'date', time: 'time', weekOf: 'week_of', priority: 'priority',
-      repeat: 'repeat', reminders: 'reminders', done: 'done', doneAt: 'done_at', snoozed: 'snoozed',
+      emoji: 'emoji', repeat: 'repeat', reminders: 'reminders', done: 'done', doneAt: 'done_at', snoozed: 'snoozed',
       exceptions: 'exceptions', sample: 'sample', createdAt: 'created_at', updatedAt: 'updated_at', deletedAt: 'deleted_at',
     },
     defaults: {
-      title: '', note: '', date: null, time: null, weekOf: null, priority: 2, repeat: null, reminders: [], done: false,
+      title: '', note: '', emoji: null, date: null, time: null, weekOf: null, priority: 2, repeat: null, reminders: [], done: false,
       doneAt: null, snoozed: false, exceptions: {}, sample: false, deletedAt: null,
     },
   },
@@ -35,12 +35,13 @@ const TABLES = {
     conflict: 'id',
     fields: {
       id: 'id', name: 'name', emoji: 'emoji', color: 'color', freq: 'freq', goal: 'goal', reminderTime: 'reminder_time',
+      startDate: 'start_date', endDate: 'end_date', dayMarks: 'day_marks',
       archived: 'archived', order: 'sort_order', sample: 'sample', createdAt: 'created_at', updatedAt: 'updated_at',
       deletedAt: 'deleted_at',
     },
     defaults: {
       name: '', emoji: '✅', color: '#2f7d6d', freq: { type: 'daily' }, goal: { type: 'bool' }, reminderTime: null,
-      archived: false, order: null, sample: false, deletedAt: null,
+      startDate: null, endDate: null, dayMarks: {}, archived: false, order: null, sample: false, deletedAt: null,
     },
   },
   completions: {
