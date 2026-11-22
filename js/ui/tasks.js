@@ -1,7 +1,7 @@
 // Екрани завдань: День (Сьогодні), Тиждень, Без дати. Форма завдання. Дії над завданнями.
 import * as store from '../storage.js';
 import {
-  todayISO, addDays, startOfWeek, weekday, occurrencesForDay, habitCounts, isHabitScheduled, habitTarget, overdueItems, sortOpen, taskDoneSet,
+  todayISO, addDays, startOfWeek, weekday, occurrencesForDay, habitCounts, isHabitScheduled, weeklyGoalMetHidden, habitTarget, overdueItems, sortOpen, taskDoneSet,
   applySnooze, moveOccurrence, parseQuickAdd, occKey, localDateTime,
 } from '../logic.js';
 import { stickerPickerHtml, bindStickerPicker } from './stickers.js';
@@ -44,7 +44,7 @@ async function loadTaskData() {
 
 /** Звички, що припадають на день. Майбутні дні — тільки для перегляду (відмітити можна тільки сьогодні й минуле). */
 function habitsForDay(habits, counts, date, today) {
-  const list = habits.filter((h) => isHabitScheduled(h, date));
+  const list = habits.filter((h) => isHabitScheduled(h, date) && !weeklyGoalMetHidden(h, counts.get(h.id), date));
   const open = list.filter((h) => (counts.get(h.id)?.get(date) || 0) < habitTarget(h)).length;
   return { list, open, html: list.map((h) => habitItem(h, counts, date, today, { readonly: date > today })).join('') };
 }

@@ -315,6 +315,19 @@ export function isHabitScheduled(h, iso) {
   return true;
 }
 
+/** «N разів на тиждень»: норму тижня виконано, а цей день ще не відмічений — його можна не показувати */
+export function weeklyGoalMetHidden(h, countsByDate, iso) {
+  const f = h.freq;
+  if (!f || f.type !== 'weekly') return false;
+  const target = habitTarget(h);
+  const c = countsByDate || new Map();
+  if ((c.get(iso) || 0) >= target) return false;
+  const ws = startOfWeek(iso);
+  let n = 0;
+  for (let i = 0; i < 7; i++) if ((c.get(addDays(ws, i)) || 0) >= target) n++;
+  return n >= Math.max(1, Math.min(7, Number(f.times) || 1));
+}
+
 /** Ручна позначка дня: 'skip' (пропущено, не рахується) або 'miss' (свідомо не виконано) */
 export function habitMark(h, iso) {
   return (h.dayMarks && h.dayMarks[iso]) || null;

@@ -1,7 +1,7 @@
 // Звички: щоденний список, форма, статистика звички, екран «Прогрес».
 import * as store from '../storage.js';
 import {
-  todayISO, addDays, weekday, startOfWeek, habitTarget, isHabitScheduled, habitCounts, habitStats, weeklyBars, habitMark, isHabitCounted,
+  todayISO, addDays, weekday, startOfWeek, habitTarget, isHabitScheduled, habitCounts, habitStats, weeklyBars, habitMark, isHabitCounted, weeklyGoalMetHidden,
 } from '../logic.js';
 import { icon } from './icons.js';
 import { kindSwitchHtml, bindKindSwitch, esc, openModal, confirmDialog, toast, prettyDate, relativeDayLabel, dayMonth, WEEKDAYS_SHORT, plural, monthYear, weekdayShort, shortDM } from './components.js';
@@ -114,8 +114,9 @@ export async function renderHabits(root, ctx) {
   const [habits, completions] = await Promise.all([store.getHabits(), store.getCompletions({ kind: 'habit' })]);
   const counts = habitCounts(completions);
   const active = habits.filter((h) => !h.archived);
-  const sched = active.filter((h) => isHabitScheduled(h, date));
-  const other = active.filter((h) => !isHabitScheduled(h, date));
+  const visible = active.filter((h) => !weeklyGoalMetHidden(h, counts.get(h.id), date));
+  const sched = visible.filter((h) => isHabitScheduled(h, date));
+  const other = visible.filter((h) => !isHabitScheduled(h, date));
 
   const item = (h) => habitItem(h, counts, date, today);
 
@@ -359,7 +360,7 @@ export async function renderHabitStats(root, ctx, id) {
           <button type="button" class="icon-btn" data-action="cal-next" aria-label="Наступний місяць" ${isCurMonth ? 'disabled' : ''}>${icon('right')}</button>
         </div>
         ${monthCalendar({ year: cm.y, month: cm.m, counts, target, color: h.color, today, isScheduled: (d) => isHabitScheduled(h, d) })}
-        <p class="hint">Натисніть на день, щоб поставити або зняти відмітку.</p>
+        <p class="hint">Натисніть на день, щоб поставити або зняти відмітку — також додаткові дні понад норму.</p>
       </section>
       <section class="card">
         <h2 class="card-title">По тижнях</h2>
