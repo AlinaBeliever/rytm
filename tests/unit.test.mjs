@@ -7,6 +7,16 @@ import { validateImport, SCHEMA_VERSION } from '../js/storage.js';
 
 const T = (o) => ({ id: o.id || 't' + Math.random(), title: 'x', priority: 2, reminders: [], createdAt: '2026-01-01T00:00:00Z', ...o });
 
+test('перенесене нагадування звички спрацьовує в новий час', () => {
+  const h = { id: 'h1', name: 'Вода', freq: { type: 'daily' }, goal: { type: 'bool' }, reminderTime: '09:00' };
+  const day = '2026-11-20';
+  const from = L.localDateTime(day, '09:01').getTime();
+  const to = L.localDateTime(day, '10:00').getTime();
+  assert.equal(L.habitReminderEvents([h], new Map(), from, to).length, 0);
+  const [ev] = L.habitReminderEvents([L.applyHabitSnooze(h, day, '09:30')], new Map(), from, to);
+  assert.equal(ev.at, L.localDateTime(day, '09:30').getTime());
+});
+
 test('дати: тиждень з понеділка, додавання днів через перехід на літній час', () => {
   assert.equal(L.weekday('2026-11-16'), 1); // понеділок
   assert.equal(L.weekday('2026-11-22'), 7); // неділя

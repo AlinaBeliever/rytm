@@ -1,6 +1,6 @@
 // sw.js — service worker «Ритму»: офлайн-робота, сповіщення, підготовка до Web Push.
 // Після змін у файлах додатку збільште VERSION — тоді всі пристрої отримають оновлення.
-const VERSION = 'rytm-v1.1.0';
+const VERSION = 'rytm-v1.2.0';
 const ASSETS = [
   './',
   'index.html',
@@ -23,6 +23,8 @@ const ASSETS = [
   'js/ui/habits.js',
   'js/ui/charts.js',
   'js/ui/settings.js',
+  'js/ui/stickers.js',
+  'js/ui/emoji-data.js',
   'icons/icon-192.png',
   'icons/icon-512.png',
   'icons/icon-maskable-512.png',
@@ -90,7 +92,7 @@ self.addEventListener('notificationclick', (event) => {
   const data = n.data || {};
   n.close();
   const action = event.action === 'done' ? 'done' : event.action === 'snooze15' ? 'snooze15' : 'open';
-  if (data.kind !== 'task') {
+  if (data.kind !== 'task' && data.kind !== 'habit') {
     event.waitUntil(
       self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((all) => {
         if (all[0]) return all[0].focus();
@@ -99,8 +101,12 @@ self.addEventListener('notificationclick', (event) => {
     );
     return;
   }
-  const url = `./?task=${encodeURIComponent(data.taskId)}&occ=${encodeURIComponent(data.occDate || '')}&action=${action}#/today`;
-  event.waitUntil(sendToClient({ type: 'notification-action', action, taskId: data.taskId, occDate: data.occDate }, url));
+  const isHabit = data.kind === 'habit';
+  const id = isHabit ? data.habitId : data.taskId;
+  const occDate = (isHabit ? data.date : data.occDate) || '';
+  const query = new URLSearchParams({ [data.kind]: id, occ: occDate, action });
+  const message = { type: 'notification-action', action, [isHabit ? 'habitId' : 'taskId']: id, occDate };
+  event.waitUntil(sendToClient(message, `./?${query}#/today`));
 });
 
 // Web Push із сервера (Supabase Edge Function). Очікуваний формат:
@@ -113,8 +119,8 @@ self.addEventListener('push', (event) => {
     payload = { title: 'Ритм', body: event.data ? event.data.text() : '' };
   }
   const data = payload.data || {};
-  const actions = data.kind === 'task'
-    ? [{ action: 'done', title: 'Виконано' }, { action: 'snooze15', title: 'Відкласти на 15 хв' }]
+  const actions = data.kind === 'task' || data.kind === 'habit'
+    ? [{ action: 'done', title: 'Виконано' }, { action: 'snooze15', title: 'Перенести на 15 хв' }]
     : [];
   event.waitUntil(
     self.registration.showNotification(payload.title || 'Ритм', {
@@ -124,6 +130,7 @@ self.addEventListener('push', (event) => {
       icon: 'icons/icon-192.png',
       badge: 'icons/badge-96.png',
       actions,
+      requireInteraction: true, // висить, доки людина сама не прибере
     })
   );
 });

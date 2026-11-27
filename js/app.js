@@ -11,9 +11,9 @@ import { seedSamplesIfFirstRun } from './samples.js';
 import { toast } from './ui/components.js';
 import {
   renderDay, renderWeek, renderNoDate, openTaskForm, toggleOccurrence, setOccurrenceDone, snoozeOccurrence,
-  openReminderSheet, openMissedSheet,
+  openReminderSheet, openHabitReminderSheet, openMissedSheet,
 } from './ui/tasks.js';
-import { renderHabits, renderHabitStats, renderProgress, openHabitForm } from './ui/habits.js';
+import { renderHabits, renderHabitStats, renderProgress, openHabitForm, completeHabit, snoozeHabit } from './ui/habits.js';
 import { renderSettings, openIOSGuide } from './ui/settings.js';
 
 const view = document.getElementById('view');
@@ -221,7 +221,18 @@ async function showMissed() {
 }
 document.addEventListener('visibilitychange', showMissed);
 
-async function handleAction({ action, taskId, occDate }) {
+async function handleAction({ action, taskId, habitId, occDate }) {
+  if (habitId) {
+    const date = occDate || todayISO();
+    if (action === 'done') await completeHabit(habitId, date);
+    else if (action === 'snooze15') await snoozeHabit(habitId, date, snoozeTarget('15m', new Date()));
+    else {
+      state.selectedDate = date;
+      ctx.navigate('#/today');
+      openHabitReminderSheet(habitId, date);
+    }
+    return;
+  }
   if (!taskId) return;
   if (action === 'done') {
     await setOccurrenceDone(taskId, occDate);
@@ -236,20 +247,26 @@ async function handleAction({ action, taskId, occDate }) {
   }
 }
 
+/** Нагадування в самому додатку: шторка, а якщо вже щось відкрито — тост, який висить до закриття */
+function showInApp(title, open) {
+  if (!document.querySelector('dialog[open]')) open();
+  else toast(`🔔 ${title}`, { action: 'Відкрити', onAction: open, timeout: 0 });
+}
+
 function startReminders() {
   notif.startScheduler({
     onFired(detail) {
       if (detail.data?.kind === 'summary') {
-        if (document.visibilityState === 'visible') toast(`${detail.title} ${detail.body}`, { timeout: 7000 });
+        if (document.visibilityState === 'visible') toast(`${detail.title} ${detail.body}`, { timeout: 0 });
         return;
       }
       if (detail.data?.kind === 'habit') {
-        if (document.visibilityState === 'visible') toast(`${detail.title} — час для звички`, { timeout: 7000 });
+        const { habitId, date } = detail.data;
+        if (document.visibilityState === 'visible') showInApp(detail.title, () => openHabitReminderSheet(habitId, date));
         return;
       }
       if (document.visibilityState === 'visible') {
-        if (!document.querySelector('dialog[open]')) openReminderSheet(detail.data.taskId, detail.data.occDate);
-        else toast(`🔔 ${detail.title}`, { timeout: 7000 });
+        showInApp(detail.title, () => openReminderSheet(detail.data.taskId, detail.data.occDate));
       } else if (!detail.shown) {
         pendingMissed.push({ id: detail.id, taskId: detail.data.taskId, occDate: detail.data.occDate, date: detail.data.occDate, title: detail.title });
       }
@@ -332,8 +349,8 @@ async function boot() {
 
   // відкриття з натискання на сповіщення (коли вкладки не було)
   const params = new URLSearchParams(location.search);
-  if (params.get('task')) {
-    const p = { action: params.get('action') || 'open', taskId: params.get('task'), occDate: params.get('occ') };
+  if (params.get('task') || params.get('habit')) {
+    const p = { action: params.get('action') || 'open', taskId: params.get('task'), habitId: params.get('habit'), occDate: params.get('occ') };
     history.replaceState(null, '', location.pathname + (location.hash || '#/today'));
     await handleAction(p);
   }

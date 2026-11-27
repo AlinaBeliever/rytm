@@ -167,18 +167,19 @@ export function toast(message, { action, onAction, timeout = 4000 } = {}) {
   const el = document.createElement('div');
   el.className = 'toast';
   el.setAttribute('role', 'status');
-  el.innerHTML = `<span>${esc(message)}</span>${action ? `<button type="button" class="toast-btn">${esc(action)}</button>` : ''}`;
+  el.innerHTML = `<span>${esc(message)}</span>${action ? `<button type="button" class="toast-btn" data-t="action">${esc(action)}</button>` : ''}${timeout ? '' : '<button type="button" class="toast-btn" data-t="close" aria-label="Закрити">✕</button>'}`;
   region.appendChild(el);
   const remove = () => {
     el.classList.add('out');
     setTimeout(() => el.remove(), 200);
   };
   if (action)
-    el.querySelector('button').addEventListener('click', () => {
+    el.querySelector('[data-t="action"]').addEventListener('click', () => {
       onAction?.();
       remove();
     });
-  setTimeout(remove, timeout);
+  el.querySelector('[data-t="close"]')?.addEventListener('click', remove);
+  if (timeout) setTimeout(remove, timeout);
 }
 
 /** Перемикач «Завдання / Звичка» зверху форм додавання. onPick(kind) викликається при виборі іншого типу. */

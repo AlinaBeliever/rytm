@@ -224,12 +224,12 @@ main {
 .day-nav { display: flex; align-items: center; gap: 4px; margin: 0 -8px; }
 .day-nav > .icon-btn { display: none; }
 .date-strip {
-  position: relative; flex: 1; display: flex; gap: 6px; overflow-x: auto; scroll-snap-type: x proximity;
+  position: relative; flex: 1; display: flex; gap: 6px; overflow-x: auto;
   padding: 4px 8px; scrollbar-width: none; overscroll-behavior-x: contain;
 }
 .date-strip::-webkit-scrollbar { display: none; }
 .date-chip {
-  flex: none; scroll-snap-align: center; width: 48px; min-height: 60px; border-radius: 14px;
+  flex: none; width: 48px; min-height: 60px; border-radius: 14px;
   border: 1px solid transparent; background: transparent; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
   color: var(--text); transition: background 0.15s;
 }
@@ -385,7 +385,15 @@ main {
 .habit.is-skip, .habit.is-miss { opacity: 0.85; }
 .habit.is-miss .habit-name { text-decoration: line-through; }
 .no-end { align-self: flex-start; }
-.sticker-grid { display: flex; flex-wrap: wrap; gap: 4px; max-height: 148px; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+.sticker-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); gap: 4px; height: 200px; align-content: start; overflow-y: auto; padding: 3px; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+.sticker-grid .emoji-btn { width: 100%; }
+.sticker-bar { display: flex; gap: 4px; align-items: center; }
+.sticker-tabs { display: flex; flex: 1; min-width: 0; gap: 2px; overflow-x: auto; scrollbar-width: none; padding: 3px; }
+.sticker-tab { flex: 1 0 36px; height: 40px; border: 0; background: transparent; border-radius: 10px; font-size: 19px; }
+.sticker-tab.active { background: var(--surface-2); box-shadow: inset 0 -3px 0 var(--accent); }
+.sticker-tab.sticker-none { flex: none; width: 40px; color: var(--muted); }
+.sticker-tab.sel { outline: 2.5px solid var(--focus); }
+.sticker-cat { margin: 4px 3px; }
 .sticker-field { border: 0; padding: 0; margin: 0; }
 .emoji-btn.sel { outline: 2.5px solid var(--focus); }
 .task-sticker { margin-right: 2px; }
@@ -526,11 +534,7 @@ input[type='range'] { width: 100%; accent-color: var(--accent); min-height: 32px
 .chip span { display: inline-flex; align-items: center; min-height: 40px; min-width: 44px; justify-content: center; padding: 0 12px; border-radius: 20px; border: 1px solid var(--border); font-size: 0.875rem; background: var(--surface); }
 .chip input:checked + span { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-strong); font-weight: 600; }
 .chip input:focus-visible + span { outline: 2.5px solid var(--focus); outline-offset: 1px; }
-.row-emoji { display: flex; gap: 10px; }
-.emoji-field { width: 76px; flex: none; }
-.emoji-field input { text-align: center; font-size: 22px; }
 .grow { flex: 1; }
-.emoji-suggest { display: flex; flex-wrap: wrap; gap: 4px; }
 .emoji-btn { width: 44px; height: 44px; border-radius: 10px; border: 0; background: var(--surface-2); font-size: 20px; }
 .colors { display: flex; flex-wrap: wrap; gap: 8px; }
 .color-opt { position: relative; }
@@ -568,6 +572,10 @@ dialog.modal.closing { animation: sheet-out 0.16s ease-in forwards; }
 .snooze-opt:hover { background: var(--surface-2); }
 .snooze-custom { margin-top: 10px; }
 .reminder-title { font-size: 1.2rem; font-weight: 600; }
+.reminder-done { width: 100%; min-height: 52px; justify-content: center; margin-top: 16px; }
+.reminder-move-label { margin: 14px 0 6px; }
+.reminder-move { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.reminder-move .btn { justify-content: center; min-height: 46px; }
 .missed-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
 .missed { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; background: var(--surface-2); border-radius: 12px; flex-wrap: wrap; }
 .missed.handled { opacity: 0.6; }

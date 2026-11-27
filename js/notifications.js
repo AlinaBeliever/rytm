@@ -85,6 +85,7 @@ export async function showSystemNotification({ title, body, tag, data = {}, acti
     icon: 'icons/icon-192.png',
     badge: 'icons/badge-96.png',
     renotify: true,
+    requireInteraction: true, // висить, доки людина сама не прибере
     actions,
   };
   try {
@@ -130,9 +131,9 @@ async function fire(ev, settings) {
   const data = isHabit
     ? { kind: 'habit', habitId: ev.habit.id, date: ev.date, url: './#/habits' }
     : { kind: 'task', taskId: ev.occ.task.id, occDate: ev.occ.occDate, url: `./?task=${ev.occ.task.id}&occ=${ev.occ.occDate}` };
-  const actions = isHabit ? [] : [
+  const actions = [
     { action: 'done', title: 'Виконано' },
-    { action: 'snooze15', title: 'Відкласти на 15 хв' },
+    { action: 'snooze15', title: 'Перенести на 15 хв' },
   ];
   const viaServer = serverPushOn();
   let shown = viaServer;

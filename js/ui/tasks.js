@@ -2,7 +2,7 @@
 import * as store from '../storage.js';
 import {
   todayISO, addDays, startOfWeek, weekday, occurrencesForDay, habitCounts, isHabitScheduled, weeklyGoalMetHidden, habitTarget, overdueItems, sortOpen, taskDoneSet,
-  applySnooze, moveOccurrence, parseQuickAdd, occKey, localDateTime,
+  applySnooze, moveOccurrence, snoozeTarget, parseQuickAdd, occKey, localDateTime,
 } from '../logic.js';
 import { stickerPickerHtml, bindStickerPicker } from './stickers.js';
 import { icon } from './icons.js';
@@ -12,7 +12,7 @@ import {
 } from './components.js';
 import { state, ui, saveUI } from '../state.js';
 import { enableDrag } from './drag.js';
-import { habitItem, habitAct, openHabitForm } from './habits.js';
+import { habitItem, habitAct, openHabitForm, completeHabit, snoozeHabit } from './habits.js';
 import { kindSwitchHtml, bindKindSwitch } from './components.js';
 
 export const PRIORITIES = [
@@ -232,11 +232,18 @@ export async function renderDay(root, ctx) {
       ctx.refresh();
     })
   );
-  // після вставки в сторінку: прокручуємо стрічку так, щоб вибраний день був по центру
+  // запам'ятовуємо, де на стрічці зараз стоїть вибране число (поки на сторінці старий екран)
+  const oldStrip = document.querySelector('#view .date-strip');
+  const oldChip = oldStrip?.querySelector(`[data-date="${sel}"]`);
+  const keepAt = oldChip ? oldChip.offsetLeft - oldStrip.scrollLeft : null;
+  // після вставки в сторінку: вибране число лишається там, де було; якщо його не було
+  // видно (перший показ, стрибок на «Сьогодні») — ставимо по центру
   return () => {
     const strip = root.querySelector('.date-strip');
     const chip = strip?.querySelector('.selected');
-    if (chip) strip.scrollLeft = chip.offsetLeft - strip.clientWidth / 2 + chip.clientWidth / 2;
+    if (!chip) return;
+    const visible = keepAt !== null && keepAt > -chip.offsetWidth && keepAt < strip.clientWidth;
+    strip.scrollLeft = chip.offsetLeft - (visible ? keepAt : (strip.clientWidth - chip.offsetWidth) / 2);
   };
 }
 
@@ -649,38 +656,76 @@ export async function openTaskForm(task, { occDate = null, defaults = {} } = {})
   });
 }
 
-/** Шторка завдання після натискання на сповіщення: Виконано / Відкласти */
-export async function openReminderSheet(taskId, occDate) {
-  const task = await store.getTask(taskId);
-  if (!task) return;
-  const when = occDate ? prettyDate(occDate) : '';
+const openSheets = new Set(); // щоб одне нагадування не відкрилось двічі
+
+/** Шторка нагадування: «Виконано» і швидке перенесення одним натисканням */
+function reminderSheet({ key, title, sub, note, options, onDone, onMove }) {
+  if (openSheets.has(key)) return Promise.resolve();
+  openSheets.add(key);
   return openModal({
     title: 'Нагадування',
     className: 'modal-small',
     render(el, close) {
-      el.innerHTML = `<p class="reminder-title">${esc(task.title)}</p>
-        <p class="muted">${esc(when)}${task.time ? ', ' + esc(task.time) : ''}</p>
-        ${task.note ? `<p class="small">${esc(task.note)}</p>` : ''}
-        <div class="modal-actions">
-          <button type="button" class="btn" data-a="snooze">${icon('snooze', 'ic-sm')} Відкласти</button>
-          <button type="button" class="btn btn-primary" data-a="done" autofocus>${icon('check', 'ic-sm')} Виконано</button>
+      const now = new Date();
+      el.innerHTML = `<p class="reminder-title">${esc(title)}</p>
+        <p class="muted">${esc(sub)}</p>
+        ${note ? `<p class="small">${esc(note)}</p>` : ''}
+        <button type="button" class="btn btn-primary reminder-done" data-a="done" autofocus>${icon('check', 'ic-sm')} Виконано</button>
+        <p class="reminder-move-label muted small">Перенести</p>
+        <div class="reminder-move">
+          ${options
+            .filter(([id]) => !(id === 'evening' && now.getHours() >= 20))
+            .map(([id, label]) => `<button type="button" class="btn" data-a="move" data-move="${id}">${esc(label)}</button>`)
+            .join('')}
+          <button type="button" class="btn" data-a="snooze">${icon('snooze', 'ic-sm')} Інший час</button>
         </div>`;
       el.addEventListener('click', async (e) => {
         const b = e.target.closest('[data-a]');
         if (!b) return;
         if (b.dataset.a === 'done') {
-          await setOccurrenceDone(taskId, occDate);
           close();
-          toast('Позначено виконаним');
-        } else {
-          const target = await snoozePicker();
-          if (target) {
-            close();
-            await snoozeOccurrence(taskId, occDate, target);
-          }
+          await onDone();
+          return;
         }
+        const target = b.dataset.a === 'move' ? snoozeTarget(b.dataset.move, new Date()) : await snoozePicker();
+        if (!target) return;
+        close();
+        await onMove(target);
       });
     },
+  }).finally(() => openSheets.delete(key));
+}
+
+/** Шторка завдання після натискання на сповіщення */
+export async function openReminderSheet(taskId, occDate) {
+  const task = await store.getTask(taskId);
+  if (!task) return;
+  const when = occDate ? prettyDate(occDate) : '';
+  return reminderSheet({
+    key: `task|${taskId}|${occDate}`,
+    title: `${task.emoji ? task.emoji + ' ' : ''}${task.title}`,
+    sub: `${when}${task.time ? ', ' + task.time : ''}`,
+    note: task.note,
+    options: [['15m', 'На 15 хв'], ['1h', 'На 1 год'], ['evening', 'На вечір'], ['tomorrow', 'На завтра']],
+    onDone: async () => {
+      await setOccurrenceDone(taskId, occDate);
+      toast('Позначено виконаним');
+    },
+    onMove: (target) => snoozeOccurrence(taskId, occDate, target),
+  });
+}
+
+/** Шторка звички після натискання на сповіщення */
+export async function openHabitReminderSheet(habitId, date) {
+  const habit = await store.getHabit(habitId);
+  if (!habit) return;
+  return reminderSheet({
+    key: `habit|${habitId}|${date}`,
+    title: `${habit.emoji || ''} ${habit.name}`.trim(),
+    sub: `${prettyDate(date)} · час для звички`,
+    options: [['15m', 'На 15 хв'], ['1h', 'На 1 год'], ['3h', 'На 3 год'], ['evening', 'На вечір']],
+    onDone: () => completeHabit(habitId, date),
+    onMove: (target) => snoozeHabit(habitId, date, target),
   });
 }
 

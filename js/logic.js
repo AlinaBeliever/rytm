@@ -283,15 +283,24 @@ export function habitReminderEvents(habits, countsByHabit, fromMs, toMs) {
   const toDay = toISODate(new Date(toMs));
   for (const iso of rangeDays(fromDay, toDay)) {
     for (const h of habits) {
-      if (h.deletedAt || h.archived || !h.reminderTime) continue;
+      const time = h.dayMarks?.[habitSnoozeKey(iso)] || h.reminderTime;
+      if (h.deletedAt || h.archived || !time) continue;
       if (!isHabitScheduled(h, iso)) continue;
       const cnt = countsByHabit.get(h.id)?.get(iso) || 0;
       if (cnt >= habitTarget(h)) continue;
-      const at = localDateTime(iso, h.reminderTime).getTime();
-      if (at > fromMs && at <= toMs) events.push({ id: `habit|${h.id}|${iso}T${h.reminderTime}`, at, habit: h, date: iso });
+      const at = localDateTime(iso, time).getTime();
+      if (at > fromMs && at <= toMs) events.push({ id: `habit|${h.id}|${iso}T${time}`, at, habit: h, date: iso });
     }
   }
   return events;
+}
+
+// перенесене нагадування звички лежить у dayMarks під окремим ключем (синхронізується разом зі звичкою)
+const habitSnoozeKey = (iso) => `snooze:${iso}`;
+
+/** Перенести нагадування звички в день iso на інший час */
+export function applyHabitSnooze(h, iso, time) {
+  return { ...h, dayMarks: { ...(h.dayMarks || {}), [habitSnoozeKey(iso)]: time } };
 }
 
 /* ---------------------------- Звички -------------------------- */

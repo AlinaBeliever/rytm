@@ -1,15 +1,15 @@
 // Звички: щоденний список, форма, статистика звички, екран «Прогрес».
 import * as store from '../storage.js';
 import {
-  todayISO, addDays, weekday, startOfWeek, habitTarget, isHabitScheduled, habitCounts, habitStats, weeklyBars, habitMark, isHabitCounted, weeklyGoalMetHidden,
+  todayISO, addDays, weekday, startOfWeek, habitTarget, isHabitScheduled, habitCounts, habitStats, weeklyBars, habitMark, isHabitCounted, weeklyGoalMetHidden, applyHabitSnooze,
 } from '../logic.js';
 import { icon } from './icons.js';
+import { stickerPickerHtml, bindStickerPicker } from './stickers.js';
 import { kindSwitchHtml, bindKindSwitch, esc, openModal, confirmDialog, toast, prettyDate, relativeDayLabel, dayMonth, WEEKDAYS_SHORT, plural, monthYear, weekdayShort, shortDM } from './components.js';
 import { ring, heatmap, weekBars, monthCalendar } from './charts.js';
 import { state, ui, saveUI } from '../state.js';
 
 export const HABIT_COLORS = ['#2f7d6d', '#3b6fd1', '#8a56c9', '#c2477a', '#cc5a32', '#a87a14', '#4a8a35', '#5f6b7a'];
-const EMOJI = ['💧', '📖', '🏃', '🧘', '🥗', '😴', '💪', '🦷', '🚶', '✍️', '🎸', '🌿', '💊', '🧹', '☀️', '✅'];
 
 function freqLabel(h) {
   const f = h.freq || { type: 'daily' };
@@ -59,6 +59,27 @@ export async function habitAct(habitId, date, act) {
   } else {
     await store.toggleCompletion('habit', h.id, date);
   }
+}
+
+/** «Виконано» зі сповіщення: зараховує день повністю */
+export async function completeHabit(habitId, date) {
+  const h = await store.getHabit(habitId);
+  if (!h) return;
+  if (habitMark(h, date)) await setMark(h, date, null);
+  await store.setCompletion('habit', h.id, date, habitTarget(h));
+  toast('Позначено виконаним');
+}
+
+/** Перенести нагадування звички на пізніший час того самого дня */
+export async function snoozeHabit(habitId, date, target) {
+  const h = await store.getHabit(habitId);
+  if (!h) return;
+  if (target.date !== date) {
+    toast('Звичку можна перенести тільки в межах цього дня');
+    return;
+  }
+  await store.saveHabit(applyHabitSnooze(h, date, target.time));
+  toast(`Нагадаю о ${target.time}`);
 }
 
 /* ------------------------------ Список ----------------------------- */
@@ -201,11 +222,8 @@ export function openHabitForm(habit, { prefillName = '' } = {}) {
     render(el, close) {
       el.innerHTML = `<form class="habit-form" novalidate>
         ${isNew ? kindSwitchHtml('habit') : ''}
-        <div class="row-emoji">
-          <label class="field emoji-field"><span>Емодзі</span><input name="emoji" type="text" maxlength="4" value="${esc(h.emoji)}" aria-label="Емодзі"></label>
-          <label class="field grow"><span>Назва</span><input name="name" type="text" maxlength="80" required value="${esc(h.name)}" placeholder="Наприклад: Пити воду" ${isNew ? 'autofocus' : ''}></label>
-        </div>
-        <div class="emoji-suggest" role="group" aria-label="Швидкий вибір емодзі">${EMOJI.map((e) => `<button type="button" class="emoji-btn" data-emoji="${e}" aria-label="Емодзі ${e}">${e}</button>`).join('')}</div>
+        <label class="field"><span>Назва</span><input name="name" type="text" maxlength="80" required value="${esc(h.name)}" placeholder="Наприклад: Пити воду" ${isNew ? 'autofocus' : ''}></label>
+        ${stickerPickerHtml(h.emoji, esc)}
         <fieldset class="field"><legend>Колір</legend><div class="colors">${HABIT_COLORS.map(
           (c, i) => `<label class="color-opt"><input type="radio" name="color" value="${c}" ${h.color === c ? 'checked' : ''} aria-label="Колір ${i + 1}"><span style="background:${c}"></span></label>`
         ).join('')}</div></fieldset>
@@ -257,10 +275,7 @@ export function openHabitForm(habit, { prefillName = '' } = {}) {
       };
       f.addEventListener('change', sync);
       sync();
-      el.querySelector('.emoji-suggest').addEventListener('click', (e) => {
-        const b = e.target.closest('[data-emoji]');
-        if (b) f.emoji.value = b.dataset.emoji;
-      });
+      bindStickerPicker(f);
       el.querySelector('[data-del]')?.addEventListener('click', async () => {
         const ok = await confirmDialog({ title: 'Видалити звичку?', text: `«${h.name}» і вся її статистика будуть видалені.`, ok: 'Видалити', danger: true });
         if (!ok) return;
@@ -298,7 +313,7 @@ export function openHabitForm(habit, { prefillName = '' } = {}) {
         await store.saveHabit({
           ...h,
           name,
-          emoji: f.emoji.value.trim() || '✅',
+          emoji: f.elements.emoji.value || '✅',
           color: f.color.value || HABIT_COLORS[0],
           freq,
           goal,
