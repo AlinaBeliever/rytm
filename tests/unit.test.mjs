@@ -7,6 +7,13 @@ import { validateImport, SCHEMA_VERSION } from '../js/storage.js';
 
 const T = (o) => ({ id: o.id || 't' + Math.random(), title: 'x', priority: 2, reminders: [], createdAt: '2026-01-01T00:00:00Z', ...o });
 
+test('нагадування звички приходять тільки між її початком і кінцем', () => {
+  const h = { id: 'h1', name: 'Вода', freq: { type: 'daily' }, goal: { type: 'bool' }, reminderTime: '09:00', startDate: '2026-11-20', endDate: '2026-11-21' };
+  const from = L.localDateTime('2026-11-18', '00:00').getTime();
+  const to = L.localDateTime('2026-11-24', '00:00').getTime();
+  assert.deepEqual(L.habitReminderEvents([h], new Map(), from, to).map((e) => e.date), ['2026-11-20', '2026-11-21']);
+});
+
 test('перенесене нагадування звички спрацьовує в новий час', () => {
   const h = { id: 'h1', name: 'Вода', freq: { type: 'daily' }, goal: { type: 'bool' }, reminderTime: '09:00' };
   const day = '2026-11-20';
